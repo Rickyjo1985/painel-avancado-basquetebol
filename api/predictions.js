@@ -4,31 +4,43 @@ const TTL = 6 * 60 * 60 * 1000;
 async function getJson(url,key){
   const r=await fetch(url,{headers:{'x-apisports-key':key}});
   const b=await r.json().catch(()=>({}));
-  if(!r.ok || (b.errors && Object.keys(b.errors).length)) throw new Error('A API não disponibilizou todos os dados necessários.');
+  if(!r.ok || (b.errors && Object.keys(b.errors).length)) {
+    const detail = b.errors && Object.keys(b.errors).length ? JSON.stringify(b.errors) : ('HTTP '+r.status);
+    throw new Error('API-Basketball: '+detail);
+  }
   return Array.isArray(b.response)?b.response:[];
 }
 function totals(g){const h=g.scores?.home?.total,a=g.scores?.away?.total;if(typeof h!=='number'||typeof a!=='number')return null;return {home:h,away:a};}
 async function teamForm(teamId,leagueId,season,key){
   const k=[teamId,leagueId,season].join(':'); const old=cache.get(k);
   if(old&&Date.now()-old.at<TTL)return old.games;
-  // Algumas competições/épocas rejeitam a combinação league+season. Tentar a forma
-  // mais simples por equipa permite usar os jogos recentes que a API disponibiliza.
-  let games;
-  try {
-    games=await getJson(BASE+'/games?team='+encodeURIComponent(teamId)+'&league='+encodeURIComponent(leagueId)+'&season='+encodeURIComponent(season),key);
-  } catch (firstError) {
-    console.error('[predictions] Histórico com liga/época falhou:', firstError.message);
-    games=[];
+  const id=encodeURIComponent(teamId);
+  const attempts=[
+    BASE+'/games?team='+id+'&league='+encodeURIComponent(leagueId)+'&season='+encodeURIComponent(season),
+    BASE+'/games?team='+id+'&season='+encodeURIComponent(season),
+    BASE+'/games?team='+id
+  ];
+  let games=[], lastError=null;
+  for(const url of attempts){
+    try {
+      games=await getJson(url,key);
+      if(games.length) break;
+    } catch(e) {
+      lastError=e;
+      console.error('[predictions] Consulta de histórico falhou:',e.message);
+    }
   }
-  // A API pode responder com response=[] sem erro HTTP; também é preciso fallback.
-  if(!games.length){
-    try { games=await getJson(BASE+'/games?team='+encodeURIComponent(teamId)+'&last=20',key); }
-    catch (fallbackError) { console.error('[predictions] Fallback de histórico falhou:', fallbackError.message); throw fallbackError; }
+  if(!games.length && lastError) {
+    console.error('[predictions] Todas as consultas de histórico falharam:',lastError.message);
+    throw lastError;
   }
   const finished=games.filter(g=>['FT','AOT','AWD','FTOT','AP'].includes(g.status?.short)&&totals(g))
-    .filter(g=>!leagueId||String(g.league?.id)===String(leagueId))
-    .sort((a,b)=>(b.timestamp||Date.parse(b.date)||0)-(a.timestamp||Date.parse(a.date)||0)).slice(0,5);
-  cache.set(k,{at:Date.now(),games:finished}); return finished;
+    .sort((a,b)=>(b.timestamp||Date.parse(b.date)||0)-(a.timestamp||Date.parse(a.date)||0));
+  // Preferir a mesma competição; se a API não devolver histórico dessa liga,
+  // usar os jogos terminados mais recentes da equipa noutras competições.
+  const sameLeague=finished.filter(g=>String(g.league?.id)===String(leagueId));
+  const selected=(sameLeague.length?sameLeague:finished).slice(0,5);
+  cache.set(k,{at:Date.now(),games:selected}); return selected;
 }
 function stats(form,teamId){
   const rows=form.map(g=>{const s=totals(g);const isHome=String(g.teams?.home?.id)===String(teamId);return {pf:isHome?s.home:s.away,pa:isHome?s.away:s.home};});
