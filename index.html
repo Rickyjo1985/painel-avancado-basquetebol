@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="pt-PT">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="description" content="Painel independente de análise de basquetebol — NBA e EuroLeague.">
+<title>Painel Avançado Basquetebol</title><link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header class="top"><div><p class="eyebrow">ANÁLISE DESPORTIVA</p><h1>🏀 Painel Avançado Basquetebol</h1><p class="sub">NBA · EuroLeague · resultados e mercados</p></div><button id="refresh">Atualizar jogos</button></header>
+<main>
+<section class="notice"><strong>Protótipo inicial</strong><span>Os dados dependem da configuração de uma API de basquetebol no servidor. Não são apresentadas odds ou previsões inventadas.</span></section>
+<section class="toolbar"><label for="league">Competição</label><select id="league"><option value="all">NBA + EuroLeague</option><option value="NBA">NBA</option><option value="EuroLeague">EuroLeague</option></select><label for="date">Data</label><input type="date" id="date"><button id="load">Pesquisar</button></section>
+<section class="summary" id="summary"><article><span>Jogos encontrados</span><strong id="count">—</strong></article><article><span>Fonte de dados</span><strong id="source">A verificar</strong></article><article><span>Estado da API</span><strong id="status">Por testar</strong></article></section>
+<section><div class="section-heading"><h2>Jogos</h2><span id="updated"></span></div><div id="games" class="games"><div class="empty">A carregar jogos…</div></div></section>
+<section class="markets"><h2>Mercados suportados no plano</h2><div class="market-grid"><article><strong>Vencedor (Moneyline)</strong><p>Comparação de equipas e forma recente, quando disponível.</p></article><article><strong>Handicap / Spread</strong><p>Diferença de pontos; odds apenas quando fornecidas por uma fonte válida.</p></article><article><strong>Total de pontos</strong><p>Over/under do jogo e, se disponível, total por equipa.</p></article></div></section>
+<p class="disclaimer">As análises são probabilísticas, não garantem resultados. Este painel não substitui verificação independente de dados e odds.</p>
+</main><script src="/app.js" defer></script></body></html>
