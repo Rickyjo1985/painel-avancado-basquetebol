@@ -10,7 +10,8 @@ async function getJson(url,key){
   }
   return Array.isArray(b.response)?b.response:[];
 }
-function totals(g){const h=g.scores?.home?.total,a=g.scores?.away?.total;if(typeof h!=='number'||typeof a!=='number')return null;return {home:h,away:a};}
+function totals(g){const rawH=g.scores?.home?.total,rawA=g.scores?.away?.total;const h=Number(rawH),a=Number(rawA);if(rawH==null||rawA==null||!Number.isFinite(h)||!Number.isFinite(a))return null;return {home:h,away:a};}
+function isFinished(g){const status=String(g.status?.short||'').toUpperCase();if(['FT','AOT','AWD','FTOT','AP','END','FINISHED','FINAL'].includes(status))return true;const score=totals(g);const date=Date.parse(g.date||'');return Boolean(score&&Number.isFinite(date)&&date<Date.now()-3*60*60*1000&&!['NS','TBD','PST','CANC','ABD','SUSP','INT','LIVE','Q1','Q2','Q3','Q4','OT','HT','BT'].includes(status));}
 async function teamForm(teamId,leagueId,season,key){
   const k=[teamId,leagueId,season].join(':'); const old=cache.get(k);
   if(old&&Date.now()-old.at<TTL)return old.games;
@@ -34,7 +35,7 @@ async function teamForm(teamId,leagueId,season,key){
     console.error('[predictions] Todas as consultas de histórico falharam:',lastError.message);
     throw lastError;
   }
-  const finished=games.filter(g=>['FT','AOT','AWD','FTOT','AP'].includes(g.status?.short)&&totals(g))
+  const finished=games.filter(g=>isFinished(g)&&totals(g))
     .sort((a,b)=>(b.timestamp||Date.parse(b.date)||0)-(a.timestamp||Date.parse(a.date)||0));
   // Preferir a mesma competição; se a API não devolver histórico dessa liga,
   // usar os jogos terminados mais recentes da equipa noutras competições.
