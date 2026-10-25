@@ -34,6 +34,9 @@ async function teamForm(teamId,leagueId,season,key){
     } catch(e) {
       lastError=e;
       console.error('[predictions] Consulta de histórico falhou:',e.message);
+      // A API devolveu rateLimit: repetir imediatamente só consome mais pedidos
+      // e agrava o bloqueio; interromper as alternativas neste caso.
+      if (/rateLimit|Too many requests|rate limit/i.test(String(e.message))) break;
     }
   }
   if(!games.length && lastError) {
@@ -75,7 +78,9 @@ module.exports=async function handler(req,res){
     const predictions={};
     for(const g of candidates){
       try{
-        const [hf,af]=await Promise.all([teamForm(g.teams.home.id,g.league.id,g.league.season,key),teamForm(g.teams.away.id,g.league.id,g.league.season,key)]);
+        // Fazer pedidos de histórico sequencialmente para reduzir picos de chamadas.
+        const hf=await teamForm(g.teams.home.id,g.league.id,g.league.season,key);
+        const af=await teamForm(g.teams.away.id,g.league.id,g.league.season,key);
         predictions[g.id]=predict(g,hf,af);
       }catch(e){console.error('[predictions] Falha no jogo '+g.id+':',e.message);predictions[g.id]={available:false,reason:'Histórico indisponível. Verifica os registos da API na Vercel.'};}
     }
