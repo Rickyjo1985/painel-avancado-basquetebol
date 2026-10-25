@@ -6,7 +6,12 @@ async function getJson(url,key){
   const b=await r.json().catch(()=>({}));
   if(!r.ok || (b.errors && Object.keys(b.errors).length)) {
     const detail = b.errors && Object.keys(b.errors).length ? JSON.stringify(b.errors) : ('HTTP '+r.status);
+    // Registar URL, estado e resposta da API (nunca a chave de autenticação).
+    console.error('[predictions] API-Basketball respondeu com erro:', JSON.stringify({url, status:r.status, statusText:r.statusText, errors:b.errors || null, message:b.message || null, results:b.results ?? null}));
     throw new Error('API-Basketball: '+detail);
+  }
+  if (!Array.isArray(b.response)) {
+    console.error('[predictions] Resposta inesperada da API-Basketball:', JSON.stringify({url, status:r.status, keys:Object.keys(b), message:b.message || null, errors:b.errors || null, results:b.results ?? null}));
   }
   return Array.isArray(b.response)?b.response:[];
 }
