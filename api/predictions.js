@@ -18,7 +18,12 @@ async function teamForm(teamId,leagueId,season,key){
     games=await getJson(BASE+'/games?team='+encodeURIComponent(teamId)+'&league='+encodeURIComponent(leagueId)+'&season='+encodeURIComponent(season),key);
   } catch (firstError) {
     console.error('[predictions] Histórico com liga/época falhou:', firstError.message);
-    games=await getJson(BASE+'/games?team='+encodeURIComponent(teamId)+'&last=20',key);
+    games=[];
+  }
+  // A API pode responder com response=[] sem erro HTTP; também é preciso fallback.
+  if(!games.length){
+    try { games=await getJson(BASE+'/games?team='+encodeURIComponent(teamId)+'&last=20',key); }
+    catch (fallbackError) { console.error('[predictions] Fallback de histórico falhou:', fallbackError.message); throw fallbackError; }
   }
   const finished=games.filter(g=>['FT','AOT','AWD','FTOT','AP'].includes(g.status?.short)&&totals(g))
     .filter(g=>!leagueId||String(g.league?.id)===String(leagueId))
@@ -38,14 +43,14 @@ function predict(game,homeForm,awayForm){
   return {available:true,homeWin:Math.round(pHome*100),awayWin:Math.round((1-pHome)*100),homePoints:Math.round(hp),awayPoints:Math.round(ap),totalPoints:Math.round(hp+ap),homeForm:{games:h.n,pointsFor:+h.pf.toFixed(1),pointsAgainst:+h.pa.toFixed(1),wins:h.w},awayForm:{games:a.n,pointsFor:+a.pf.toFixed(1),pointsAgainst:+a.pa.toFixed(1),wins:a.w},confidence:Math.min(h.n,a.n)>=5?'Moderada':'Baixa',method:'Médias dos últimos jogos + ajuste caseiro',note:'Estimativa estatística simples; não é um modelo validado nem uma garantia.'};
 }
 module.exports=async function handler(req,res){
-  res.setHeader('Cache-Control','s-maxage=21600, stale-while-revalidate=3600');
+  res.setHeader('Cache-Control','no-store, no-cache, must-revalidate');
   if(req.method!=='GET'){res.setHeader('Allow','GET');return res.status(405).json({error:'Método não permitido.'});}
   const key=process.env.APISPORTS_BASKETBALL_KEY||process.env.APIFOOTBALL_KEY;
   if(!key)return res.status(503).json({error:'Não foi encontrada uma chave API-Basketball.'});
   const date=String(req.query.date||new Date().toISOString().slice(0,10));
   if(!/^\d{4}-\d{2}-\d{2}$/.test(date))return res.status(400).json({error:'Data inválida.'});
   const ck='date:'+date; const old=cache.get(ck);
-  if(old&&Date.now()-old.at<TTL)return res.status(200).json(old.value);
+  if(req.query.refresh!=='1'&&old&&Date.now()-old.at<TTL)return res.status(200).json(old.value);
   try{
     const games=await getJson(BASE+'/games?date='+encodeURIComponent(date),key);
     const candidates=games.filter(g=>g.teams?.home?.id&&g.teams?.away?.id&&g.league?.id&&g.league?.season&&['NS','Q1','Q2','Q3','Q4','OT','HT','BT'].includes(g.status?.short)).slice(0,4);
@@ -54,7 +59,7 @@ module.exports=async function handler(req,res){
       try{
         const [hf,af]=await Promise.all([teamForm(g.teams.home.id,g.league.id,g.league.season,key),teamForm(g.teams.away.id,g.league.id,g.league.season,key)]);
         predictions[g.id]=predict(g,hf,af);
-      }catch(e){predictions[g.id]={available:false,reason:'Não foi possível obter o histórico; não há prognóstico fiável.'};}
+      }catch(e){console.error('[predictions] Falha no jogo '+g.id+':',e.message);predictions[g.id]={available:false,reason:'Histórico indisponível. Verifica os registos da API na Vercel.'};}
     }
     const value={games, predictions,source:'API-Basketball (API-Sports)',configured:true,message:'Prognósticos estimados a partir dos últimos jogos disponíveis. Até 4 jogos analisados por consulta; os dados são guardados em cache por 6 horas.'};
     cache.set(ck,{at:Date.now(),value});
