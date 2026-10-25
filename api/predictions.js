@@ -11,8 +11,18 @@ function totals(g){const h=g.scores?.home?.total,a=g.scores?.away?.total;if(type
 async function teamForm(teamId,leagueId,season,key){
   const k=[teamId,leagueId,season].join(':'); const old=cache.get(k);
   if(old&&Date.now()-old.at<TTL)return old.games;
-  const games=await getJson(BASE+'/games?team='+encodeURIComponent(teamId)+'&league='+encodeURIComponent(leagueId)+'&season='+encodeURIComponent(season),key);
-  const finished=games.filter(g=>['FT','AOT','AWD'].includes(g.status?.short)&&totals(g)).sort((a,b)=>(b.timestamp||0)-(a.timestamp||0)).slice(0,5);
+  // Algumas competições/épocas rejeitam a combinação league+season. Tentar a forma
+  // mais simples por equipa permite usar os jogos recentes que a API disponibiliza.
+  let games;
+  try {
+    games=await getJson(BASE+'/games?team='+encodeURIComponent(teamId)+'&league='+encodeURIComponent(leagueId)+'&season='+encodeURIComponent(season),key);
+  } catch (firstError) {
+    console.error('[predictions] Histórico com liga/época falhou:', firstError.message);
+    games=await getJson(BASE+'/games?team='+encodeURIComponent(teamId)+'&last=20',key);
+  }
+  const finished=games.filter(g=>['FT','AOT','AWD','FTOT','AP'].includes(g.status?.short)&&totals(g))
+    .filter(g=>!leagueId||String(g.league?.id)===String(leagueId))
+    .sort((a,b)=>(b.timestamp||Date.parse(b.date)||0)-(a.timestamp||Date.parse(a.date)||0)).slice(0,5);
   cache.set(k,{at:Date.now(),games:finished}); return finished;
 }
 function stats(form,teamId){
