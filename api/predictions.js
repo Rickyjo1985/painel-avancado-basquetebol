@@ -61,7 +61,9 @@ module.exports=async function handler(req,res){
   if(req.query.refresh!=='1'&&old&&Date.now()-old.at<TTL)return res.status(200).json(old.value);
   try{
     const games=await getJson(BASE+'/games?date='+encodeURIComponent(date),key);
+    console.log('[predictions] Jogos recebidos:', JSON.stringify({date,count:games.length}));
     const candidates=games.filter(g=>g.teams?.home?.id&&g.teams?.away?.id&&g.league?.id&&g.league?.season&&['NS','Q1','Q2','Q3','Q4','OT','HT','BT'].includes(g.status?.short)).slice(0,4);
+    console.log('[predictions] Jogos candidatos:', JSON.stringify({date,count:candidates.length,ids:candidates.map(g=>g.id),leagues:candidates.map(g=>({id:g.league?.id,season:g.league?.season,status:g.status?.short}))}));
     const predictions={};
     let rateLimited=false;
     for(const g of candidates){
@@ -81,6 +83,7 @@ module.exports=async function handler(req,res){
       }
     }
     const value={games, predictions,source:'API-Basketball (API-Sports)',configured:true,message:'Prognósticos estimados a partir dos últimos jogos disponíveis. Até 4 jogos analisados por consulta; os dados são guardados em cache por 6 horas.'};
+    console.log('[predictions] Resumo final:', JSON.stringify({date,games:games.length,candidates:candidates.length,available:Object.values(predictions).filter(p=>p.available).length,unavailable:Object.values(predictions).filter(p=>!p.available).length,rateLimited}));
     cache.set(ck,{at:Date.now(),value});
     // Não repetir chamadas à API por cada visita. Resultados incompletos por rate limit ficam em cache só 60 s.
     res.setHeader('Cache-Control', rateLimited
