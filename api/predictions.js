@@ -54,7 +54,7 @@ function predict(game,homeForm,awayForm){
   return {available:true,homeWin:Math.round(pHome*100),awayWin:Math.round((1-pHome)*100),homePoints:Math.round(hp),awayPoints:Math.round(ap),totalPoints:Math.round(hp+ap),homeForm:{games:h.n,pointsFor:+h.pf.toFixed(1),pointsAgainst:+h.pa.toFixed(1),wins:h.w},awayForm:{games:a.n,pointsFor:+a.pf.toFixed(1),pointsAgainst:+a.pa.toFixed(1),wins:a.w},confidence:Math.min(h.n,a.n)>=5?'Moderada':'Baixa',method:'Médias dos últimos jogos + ajuste caseiro',note:'Estimativa estatística simples; não é um modelo validado nem uma garantia.'};
 }
 module.exports=async function handler(req,res){
-  res.setHeader('Cache-Control','no-store, no-cache, must-revalidate');
+  // Cache partilhada na edge da Vercel: a cache em memória do processo não é partilhada entre instâncias.
   if(req.method!=='GET'){res.setHeader('Allow','GET');return res.status(405).json({error:'Método não permitido.'});}
   const key=process.env.APISPORTS_BASKETBALL_KEY||process.env.APIFOOTBALL_KEY;
   if(!key)return res.status(503).json({error:'Não foi encontrada uma chave API-Basketball.'});
@@ -85,6 +85,10 @@ module.exports=async function handler(req,res){
     }
     const value={games, predictions,source:'API-Basketball (API-Sports)',configured:true,message:'Prognósticos estimados a partir dos últimos jogos disponíveis. Até 4 jogos analisados por consulta; os dados são guardados em cache por 6 horas.'};
     cache.set(ck,{at:Date.now(),value});
+    // Não repetir chamadas à API por cada visita. Resultados incompletos por rate limit ficam em cache só 60 s.
+    res.setHeader('Cache-Control', rateLimited
+      ? 'public, s-maxage=60, stale-while-revalidate=120'
+      : 'public, s-maxage=21600, stale-while-revalidate=3600');
     return res.status(200).json(value);
   }catch(e){return res.status(502).json({error:e.message||'Falha de ligação à API de basquetebol.'});}
 };
