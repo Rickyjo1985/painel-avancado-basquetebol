@@ -18,28 +18,34 @@ async function getJson(url,key){
 function totals(g){const rawH=g.scores?.home?.total,rawA=g.scores?.away?.total;const h=Number(rawH),a=Number(rawA);if(rawH==null||rawA==null||!Number.isFinite(h)||!Number.isFinite(a))return null;return {home:h,away:a};}
 function isFinished(g){const status=String(g.status?.short||'').toUpperCase();if(['FT','AOT','AWD','FTOT','AP','END','FINISHED','FINAL'].includes(status))return true;const score=totals(g);const date=Date.parse(g.date||'');return Boolean(score&&Number.isFinite(date)&&date<Date.now()-3*60*60*1000&&!['NS','TBD','PST','CANC','ABD','SUSP','INT','LIVE','Q1','Q2','Q3','Q4','OT','HT','BT'].includes(status));}
 async function teamForm(teamId,leagueId,season,key){
-  // Os IDs das ligas podem variar entre épocas. Consultar pelo ID da equipa evita
-  // depender do ID da liga atual para encontrar jogos históricos de 2022–2024.
+  // A época atual não está disponível no plano gratuito; procurar históricos nas épocas permitidas.
+  const seasons=['2024','2023','2022'];
   const seasonText=String(season||'');
-  const seasonMatch=seasonText.match(/^(\\d{4})/);
+  let historySeasons=seasons;
+  const seasonMatch=seasonText.match(/^(\d{4})/);
   const seasonYear=seasonMatch?Number(seasonMatch[1]):NaN;
-  const historySeason=Number.isFinite(seasonYear)?String(Math.min(2024,Math.max(2022,seasonYear))):'2024';
-  const teamCacheKey=['team-history',teamId,historySeason].join(':');
-  let record=cache.get(teamCacheKey);
-  if(!record||Date.now()-record.at>=TTL){
-    const url=BASE+'/games?team='+encodeURIComponent(teamId)+'&season='+encodeURIComponent(historySeason);
-    const games=await getJson(url,key);
-    record={at:Date.now(),games};
-    cache.set(teamCacheKey,record);
-    console.log('[predictions] Histórico recebido:', JSON.stringify({teamId,leagueId,seasonRequested:season,historySeason,count:games.length}));
+  if(Number.isFinite(seasonYear)){
+    const preferred=String(Math.min(2024,Math.max(2022,seasonYear)));
+    historySeasons=[preferred,...seasons.filter(s=>s!==preferred)];
   }
-  const finished=record.games.filter(g=>
-    (String(g.teams?.home?.id)===String(teamId)||String(g.teams?.away?.id)===String(teamId)) &&
-    isFinished(g)&&totals(g)
-  ).sort((a,b)=>(b.timestamp||Date.parse(b.date)||0)-(a.timestamp||Date.parse(a.date)||0));
-  const result=finished.slice(0,5);
-  console.log('[predictions] Histórico filtrado:', JSON.stringify({teamId,leagueId,historySeason,finished:finished.length,selected:result.length}));
-  return result;
+  for(const historySeason of historySeasons){
+    const teamCacheKey=['team-history',teamId,historySeason].join(':');
+    let record=cache.get(teamCacheKey);
+    if(!record||Date.now()-record.at>=TTL){
+      const url=BASE+'/games?team='+encodeURIComponent(teamId)+'&season='+encodeURIComponent(historySeason);
+      const games=await getJson(url,key);
+      record={at:Date.now(),games};
+      cache.set(teamCacheKey,record);
+      console.log('[predictions] Histórico recebido:', JSON.stringify({teamId,leagueId,seasonRequested:season,historySeason,count:games.length}));
+    }
+    const finished=record.games.filter(g=>
+      (String(g.teams?.home?.id)===String(teamId)||String(g.teams?.away?.id)===String(teamId)) &&
+      isFinished(g)&&totals(g)
+    ).sort((a,b)=>(b.timestamp||Date.parse(b.date)||0)-(a.timestamp||Date.parse(a.date)||0));
+    console.log('[predictions] Histórico filtrado:', JSON.stringify({teamId,leagueId,historySeason,finished:finished.length,selected:Math.min(5,finished.length)}));
+    if(finished.length) return finished.slice(0,5);
+  }
+  return [];
 }
 function stats(form,teamId){
   const rows=form.map(g=>{const s=totals(g);const isHome=String(g.teams?.home?.id)===String(teamId);return {pf:isHome?s.home:s.away,pa:isHome?s.away:s.home};});
