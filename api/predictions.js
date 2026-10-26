@@ -66,13 +66,22 @@ module.exports=async function handler(req,res){
     const games=await getJson(BASE+'/games?date='+encodeURIComponent(date),key);
     const candidates=games.filter(g=>g.teams?.home?.id&&g.teams?.away?.id&&g.league?.id&&g.league?.season&&['NS','Q1','Q2','Q3','Q4','OT','HT','BT'].includes(g.status?.short)).slice(0,4);
     const predictions={};
+    let rateLimited=false;
     for(const g of candidates){
+      if(rateLimited){
+        predictions[g.id]={available:false,reason:'Previsão temporariamente indisponível: limite de pedidos da API atingido. Tenta novamente após 60 segundos.'};
+        continue;
+      }
       try{
-        // Fazer pedidos de histórico sequencialmente para reduzir picos de chamadas.
+        // Pedidos sequenciais; parar o lote inteiro assim que a API aplicar rate limit.
         const hf=await teamForm(g.teams.home.id,g.league.id,g.league.season,key);
         const af=await teamForm(g.teams.away.id,g.league.id,g.league.season,key);
         predictions[g.id]=predict(g,hf,af);
-      }catch(e){console.error('[predictions] Falha no jogo '+g.id+':',e.message);predictions[g.id]={available:false,reason:'Histórico indisponível. Verifica os registos da API na Vercel.'};}
+      }catch(e){
+        console.error('[predictions] Falha no jogo '+g.id+':',e.message);
+        if(/rateLimit|Too many requests|rate limit/i.test(String(e.message))) rateLimited=true;
+        predictions[g.id]={available:false,reason:rateLimited?'Limite de pedidos da API atingido. Aguarda pelo menos 60 segundos antes de tentar novamente.':'Histórico indisponível. Verifica os registos da API na Vercel.'};
+      }
     }
     const value={games, predictions,source:'API-Basketball (API-Sports)',configured:true,message:'Prognósticos estimados a partir dos últimos jogos disponíveis. Até 4 jogos analisados por consulta; os dados são guardados em cache por 6 horas.'};
     cache.set(ck,{at:Date.now(),value});
