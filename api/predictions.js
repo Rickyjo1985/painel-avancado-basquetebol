@@ -18,38 +18,28 @@ async function getJson(url,key){
 function totals(g){const rawH=g.scores?.home?.total,rawA=g.scores?.away?.total;const h=Number(rawH),a=Number(rawA);if(rawH==null||rawA==null||!Number.isFinite(h)||!Number.isFinite(a))return null;return {home:h,away:a};}
 function isFinished(g){const status=String(g.status?.short||'').toUpperCase();if(['FT','AOT','AWD','FTOT','AP','END','FINISHED','FINAL'].includes(status))return true;const score=totals(g);const date=Date.parse(g.date||'');return Boolean(score&&Number.isFinite(date)&&date<Date.now()-3*60*60*1000&&!['NS','TBD','PST','CANC','ABD','SUSP','INT','LIVE','Q1','Q2','Q3','Q4','OT','HT','BT'].includes(status));}
 async function teamForm(teamId,leagueId,season,key){
-  const k=[teamId,leagueId,season].join(':'); const old=cache.get(k);
+  const requestedKey=[teamId,leagueId,season].join(':'); const old=cache.get(requestedKey);
   if(old&&Date.now()-old.at<TTL)return old.games;
   const id=encodeURIComponent(teamId);
-  const attempts=[
-    BASE+'/games?team='+id+'&league='+encodeURIComponent(leagueId)+'&season='+encodeURIComponent(season),
-    BASE+'/games?team='+id+'&season='+encodeURIComponent(season),
-    BASE+'/games?team='+id
-  ];
-  let games=[], lastError=null;
-  for(const url of attempts){
-    try {
-      games=await getJson(url,key);
-      if(games.length) break;
-    } catch(e) {
-      lastError=e;
-      console.error('[predictions] Consulta de histórico falhou:',e.message);
-      // A API devolveu rateLimit: repetir imediatamente só consome mais pedidos
-      // e agrava o bloqueio; interromper as alternativas neste caso.
-      if (/rateLimit|Too many requests|rate limit/i.test(String(e.message))) break;
-    }
-  }
-  if(!games.length && lastError) {
-    console.error('[predictions] Todas as consultas de histórico falharam:',lastError.message);
-    throw lastError;
+  // O plano gratuito só permite épocas de 2022 a 2024. Não enviar épocas
+  // futuras nem fazer pedidos sem season, que a API rejeita.
+  const seasonText=String(season||'');
+  const seasonMatch=seasonText.match(/^(\\d{4})/);
+  const seasonYear=seasonMatch?Number(seasonMatch[1]):NaN;
+  const historySeason=Number.isFinite(seasonYear)?String(Math.min(2024,Math.max(2022,seasonYear))):'2024';
+  const url=BASE+'/games?team='+id+'&season='+encodeURIComponent(historySeason);
+  let games=[];
+  try {
+    games=await getJson(url,key);
+  } catch(e) {
+    console.error('[predictions] Consulta de histórico falhou:',e.message);
+    throw e;
   }
   const finished=games.filter(g=>isFinished(g)&&totals(g))
     .sort((a,b)=>(b.timestamp||Date.parse(b.date)||0)-(a.timestamp||Date.parse(a.date)||0));
-  // Preferir a mesma competição; se a API não devolver histórico dessa liga,
-  // usar os jogos terminados mais recentes da equipa noutras competições.
   const sameLeague=finished.filter(g=>String(g.league?.id)===String(leagueId));
   const selected=(sameLeague.length?sameLeague:finished).slice(0,5);
-  cache.set(k,{at:Date.now(),games:selected}); return selected;
+  cache.set(requestedKey,{at:Date.now(),games:selected}); return selected;
 }
 function stats(form,teamId){
   const rows=form.map(g=>{const s=totals(g);const isHome=String(g.teams?.home?.id)===String(teamId);return {pf:isHome?s.home:s.away,pa:isHome?s.away:s.home};});
