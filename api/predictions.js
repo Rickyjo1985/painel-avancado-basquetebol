@@ -18,28 +18,25 @@ async function getJson(url,key){
 function totals(g){const rawH=g.scores?.home?.total,rawA=g.scores?.away?.total;const h=Number(rawH),a=Number(rawA);if(rawH==null||rawA==null||!Number.isFinite(h)||!Number.isFinite(a))return null;return {home:h,away:a};}
 function isFinished(g){const status=String(g.status?.short||'').toUpperCase();if(['FT','AOT','AWD','FTOT','AP','END','FINISHED','FINAL'].includes(status))return true;const score=totals(g);const date=Date.parse(g.date||'');return Boolean(score&&Number.isFinite(date)&&date<Date.now()-3*60*60*1000&&!['NS','TBD','PST','CANC','ABD','SUSP','INT','LIVE','Q1','Q2','Q3','Q4','OT','HT','BT'].includes(status));}
 async function teamForm(teamId,leagueId,season,key){
-  const requestedKey=[teamId,leagueId,season].join(':'); const old=cache.get(requestedKey);
-  if(old&&Date.now()-old.at<TTL)return old.games;
-  const id=encodeURIComponent(teamId);
-  // O plano gratuito só permite épocas de 2022 a 2024. Não enviar épocas
-  // futuras nem fazer pedidos sem season, que a API rejeita.
+  // Uma única consulta por liga/época, reutilizada para ambas as equipas e todos os jogos.
+  // Isto reduz drasticamente o consumo do limite de 10 pedidos/minuto.
   const seasonText=String(season||'');
-  const seasonMatch=seasonText.match(/^(\\d{4})/);
+  const seasonMatch=seasonText.match(/^(\d{4})/);
   const seasonYear=seasonMatch?Number(seasonMatch[1]):NaN;
   const historySeason=Number.isFinite(seasonYear)?String(Math.min(2024,Math.max(2022,seasonYear))):'2024';
-  const url=BASE+'/games?team='+id+'&season='+encodeURIComponent(historySeason);
-  let games=[];
-  try {
-    games=await getJson(url,key);
-  } catch(e) {
-    console.error('[predictions] Consulta de histórico falhou:',e.message);
-    throw e;
+  const leagueCacheKey=['league-history',leagueId,historySeason].join(':');
+  let record=cache.get(leagueCacheKey);
+  if(!record||Date.now()-record.at>=TTL){
+    const url=BASE+'/games?league='+encodeURIComponent(leagueId)+'&season='+encodeURIComponent(historySeason);
+    const games=await getJson(url,key);
+    record={at:Date.now(),games};
+    cache.set(leagueCacheKey,record);
   }
-  const finished=games.filter(g=>isFinished(g)&&totals(g))
-    .sort((a,b)=>(b.timestamp||Date.parse(b.date)||0)-(a.timestamp||Date.parse(a.date)||0));
-  const sameLeague=finished.filter(g=>String(g.league?.id)===String(leagueId));
-  const selected=(sameLeague.length?sameLeague:finished).slice(0,5);
-  cache.set(requestedKey,{at:Date.now(),games:selected}); return selected;
+  const finished=record.games.filter(g=>
+    (String(g.teams?.home?.id)===String(teamId)||String(g.teams?.away?.id)===String(teamId)) &&
+    isFinished(g)&&totals(g)
+  ).sort((a,b)=>(b.timestamp||Date.parse(b.date)||0)-(a.timestamp||Date.parse(a.date)||0));
+  return finished.slice(0,5);
 }
 function stats(form,teamId){
   const rows=form.map(g=>{const s=totals(g);const isHome=String(g.teams?.home?.id)===String(teamId);return {pf:isHome?s.home:s.away,pa:isHome?s.away:s.home};});
